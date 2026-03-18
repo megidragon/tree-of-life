@@ -28,7 +28,8 @@ export class Tree extends Entity {
    * @param {number} [options.seed] - Deterministic seed for branch generation
    * @param {number} [options.branchCount=null] - Number of main branches (default: 5-7 random). 0 = trunk only
    * @param {number} [options.subBranchCount=2] - Max sub-branches per main branch. 0 = no sub-branches
-   * @param {number} [options.leafDensity=1] - Leaf thickness/density: 0 = no leaves, 1 = normal, >1 = denser
+   * @param {number} [options.leafDensity=1] - Leaf size: 0 = no leaves, 1 = normal, >1 = bigger
+   * @param {number} [options.leafClusters=0] - Clusters per branch: 0 = single leaf at tip (default), 1-5+ = multiple clusters along branch
    * @param {object} [options.leafColor] - Custom leaf color palette
    * @param {string[]} [options.leafColor.greens] - Array of 4 hex colors for leaf body
    * @param {string[]} [options.leafColor.darkGreens] - Array of 4 hex colors for leaf shadows
@@ -41,6 +42,7 @@ export class Tree extends Entity {
     this.branchCount = options.branchCount ?? null;
     this.subBranchCount = options.subBranchCount ?? 2;
     this.leafDensity = options.leafDensity ?? 1;
+    this.leafClusters = options.leafClusters ?? 0;
     this.leafColor = options.leafColor ?? DEFAULT_LEAF_PALETTE;
 
     const trunkW = 24;
@@ -53,7 +55,7 @@ export class Tree extends Entity {
 
     // Pre-generate branch structure so it's stable across frames
     const rng = seededRandom(seed);
-    const branches = Tree._generateBranches(rng, trunkW, trunkH, canopyR, this.branchCount, this.subBranchCount);
+    const branches = Tree._generateBranches(rng, trunkW, trunkH, canopyR, this.branchCount, this.subBranchCount, this.leafClusters);
 
     const self = this;
     this.addComponent(
@@ -108,7 +110,7 @@ export class Tree extends Entity {
     this.addTag('nature');
   }
 
-  static _generateBranches(rng, trunkW, trunkH, canopyR, forcedBranchCount, maxSubBranches) {
+  static _generateBranches(rng, trunkW, trunkH, canopyR, forcedBranchCount, maxSubBranches, leafClusters) {
     const branches = [];
 
     // Main branches growing from trunk
@@ -134,7 +136,7 @@ export class Tree extends Entity {
           angle: subAngle,
           length: subLength,
           thickness: Math.max(1, thickness * 0.5),
-          leafClusters: Tree._generateLeafClusters(rng, subLength, 2 + Math.floor(rng() * 2)),
+          leafData: Tree._generateLeafData(rng, subLength, leafClusters),
         });
       }
 
@@ -144,22 +146,33 @@ export class Tree extends Entity {
         length,
         thickness,
         subBranches,
-        leafClusters: Tree._generateLeafClusters(rng, length, 3 + Math.floor(rng() * 3)),
+        leafData: Tree._generateLeafData(rng, length, leafClusters),
       });
     }
 
     return branches;
   }
 
-  static _generateLeafClusters(rng, branchLength, count) {
+  static _generateLeafData(rng, branchLength, clusterCount) {
+    // Single leaf at tip (default mode: clusterCount = 0)
+    if (clusterCount <= 0) {
+      const size = 12 + rng() * 10;
+      return {
+        mode: 'single',
+        tipLeaf: {
+          r: size,
+          shade: Math.floor(rng() * 4),
+        },
+      };
+    }
+
+    // Multiple clusters along the branch
     const clusters = [];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < clusterCount; i++) {
       const t = 0.3 + rng() * 0.7;
       const spread = 6 + rng() * 10;
-      const offsetAngle = (rng() - 0.5) * 1.5;
       const size = 10 + rng() * 14;
 
-      // Each cluster is a group of overlapping leaf circles
       const leaves = [];
       const leafCount = 3 + Math.floor(rng() * 4);
       for (let l = 0; l < leafCount; l++) {
@@ -167,12 +180,12 @@ export class Tree extends Entity {
           ox: (rng() - 0.5) * spread,
           oy: (rng() - 0.5) * spread,
           r: size * (0.4 + rng() * 0.6),
-          shade: Math.floor(rng() * 4), // index into green palette
+          shade: Math.floor(rng() * 4),
         });
       }
-      clusters.push({ t, offsetAngle, leaves });
+      clusters.push({ t, leaves });
     }
-    return clusters;
+    return { mode: 'clusters', clusters };
   }
 
   static _renderBranches(ctx, cx, trunkTop, trunkH, branches, leafDensity, leafColor) {
@@ -213,37 +226,55 @@ export class Tree extends Entity {
 
         // Leaves on sub-branches
         if (leafDensity > 0) {
-          Tree._renderLeafClusters(ctx, subStartX, subStartY, subEndX, subEndY, sub.leafClusters, greens, darkGreens, leafDensity);
+          Tree._renderLeaves(ctx, subStartX, subStartY, subEndX, subEndY, sub.leafData, greens, darkGreens, leafDensity);
         }
       }
 
       // Leaves on main branch
       if (leafDensity > 0) {
-        Tree._renderLeafClusters(ctx, startX, startY, endX, endY, branch.leafClusters, greens, darkGreens, leafDensity);
+        Tree._renderLeaves(ctx, startX, startY, endX, endY, branch.leafData, greens, darkGreens, leafDensity);
       }
     }
   }
 
-  static _renderLeafClusters(ctx, startX, startY, endX, endY, clusters, greens, darkGreens, leafDensity) {
-    for (const cluster of clusters) {
-      const clX = startX + (endX - startX) * cluster.t;
-      const clY = startY + (endY - startY) * cluster.t;
+  static _renderLeaves(ctx, startX, startY, endX, endY, leafData, greens, darkGreens, leafDensity) {
+    if (leafData.mode === 'single') {
+      // Single leaf circle at the tip of the branch
+      const { r, shade } = leafData.tipLeaf;
+      const radius = r * leafDensity;
+      if (radius < 0.5) return;
 
-      for (const leaf of cluster.leaves) {
-        const r = leaf.r * leafDensity;
-        if (r < 0.5) continue;
+      // Shadow
+      ctx.fillStyle = darkGreens[shade];
+      ctx.beginPath();
+      ctx.arc(endX + 1, endY + 1, radius + 1, 0, Math.PI * 2);
+      ctx.fill();
 
-        // Dark outline/shadow layer
-        ctx.fillStyle = darkGreens[leaf.shade];
-        ctx.beginPath();
-        ctx.arc(clX + leaf.ox + 1, clY + leaf.oy + 1, r + 1, 0, Math.PI * 2);
-        ctx.fill();
+      // Leaf body
+      ctx.fillStyle = greens[shade];
+      ctx.beginPath();
+      ctx.arc(endX, endY, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Multiple clusters along the branch
+      for (const cluster of leafData.clusters) {
+        const clX = startX + (endX - startX) * cluster.t;
+        const clY = startY + (endY - startY) * cluster.t;
 
-        // Main leaf body
-        ctx.fillStyle = greens[leaf.shade];
-        ctx.beginPath();
-        ctx.arc(clX + leaf.ox, clY + leaf.oy, r, 0, Math.PI * 2);
-        ctx.fill();
+        for (const leaf of cluster.leaves) {
+          const r = leaf.r * leafDensity;
+          if (r < 0.5) continue;
+
+          ctx.fillStyle = darkGreens[leaf.shade];
+          ctx.beginPath();
+          ctx.arc(clX + leaf.ox + 1, clY + leaf.oy + 1, r + 1, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = greens[leaf.shade];
+          ctx.beginPath();
+          ctx.arc(clX + leaf.ox, clY + leaf.oy, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
   }

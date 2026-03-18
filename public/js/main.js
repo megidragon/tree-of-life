@@ -19,7 +19,7 @@ const centerX = map.getCenterX();
 const centerY = map.getCenterY();
 const tree = new Tree(centerX, centerY, {
   leafDensity: 1,
-  branchCount: 3,
+  branchCount: 10,
   subBranchCount: 0,
 });
 game.addEntity(tree);
