@@ -3,109 +3,169 @@ import { GameMap } from './world/GameMap.js';
 import { Tree } from './entities/Tree.js';
 import { Flower } from './entities/Flower.js';
 
+const TILE = 64;
 const canvas = document.getElementById('gameCanvas');
 const game = new Game(canvas);
 
-async function loadWorld() {
-  const res = await fetch('/api/world');
-  const saved = await res.json();
-  return saved;
+// ── Auth helpers ──
+
+async function apiPost(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
 }
 
-async function saveWorld(worldData) {
-  await fetch('/api/world', {
+async function apiGet(url, token) {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json();
+}
+
+async function apiPut(url, body, token) {
+  await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(worldData),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
   });
 }
 
-function generateFlowers(map, centerX, centerY) {
+// ── Login UI ──
+
+function setupLoginUI() {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('loginOverlay');
+    const errorEl = document.getElementById('loginError');
+    const usernameEl = document.getElementById('loginUsername');
+    const passwordEl = document.getElementById('loginPassword');
+    const btnLogin = document.getElementById('btnLogin');
+    const btnRegister = document.getElementById('btnRegister');
+
+    async function doAuth(endpoint) {
+      const username = usernameEl.value.trim();
+      const password = passwordEl.value;
+      if (!username || !password) {
+        errorEl.textContent = 'Enter username and password';
+        return;
+      }
+      errorEl.textContent = '';
+      btnLogin.disabled = btnRegister.disabled = true;
+
+      try {
+        const data = await apiPost(endpoint, { username, password });
+        overlay.classList.add('hidden');
+        resolve({ token: data.token, user: data.user });
+      } catch (err) {
+        errorEl.textContent = err.message;
+      } finally {
+        btnLogin.disabled = btnRegister.disabled = false;
+      }
+    }
+
+    btnLogin.addEventListener('click', () => doAuth('/api/login'));
+    btnRegister.addEventListener('click', () => doAuth('/api/register'));
+
+    passwordEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doAuth('/api/login');
+    });
+  });
+}
+
+// ── Flower generation ──
+
+function generateFlowers(map) {
   const flowers = [];
   const rng = (min, max) => min + Math.random() * (max - min);
 
   for (let i = 0; i < 6000; i++) {
     const fx = rng(64, map.pixelWidth - 64);
     const fy = rng(64, map.pixelHeight - 64);
-
-    const dx = fx - centerX;
-    const dy = fy - centerY;
-    if (Math.sqrt(dx * dx + dy * dy) < 80) continue;
-
-    const flower = new Flower(fx, fy);
-    flowers.push(flower);
+    flowers.push(new Flower(fx, fy));
   }
-
   return flowers;
 }
 
-async function init() {
-  let saved = await loadWorld();
+// ── Game init ──
 
-  // Map config
-  const mapW = saved?.map?.widthInTiles ?? 320;
-  const mapH = saved?.map?.heightInTiles ?? 320;
+async function init() {
+  // 1. Login
+  const { token, user } = await setupLoginUI();
+
+  // 2. Load shared world (map + flowers)
+  let world = await apiGet('/api/world', token);
+
+  const mapW = world?.map?.widthInTiles ?? 320;
+  const mapH = world?.map?.heightInTiles ?? 320;
   const map = new GameMap(mapW, mapH);
 
   for (const tile of map.getEntities()) {
     game.addEntity(tile);
   }
 
-  // Tree
-  const centerX = map.getCenterX();
-  const centerY = map.getCenterY();
-
-  let treeOpts;
-  if (saved?.tree) {
-    treeOpts = {
-      seed: saved.tree.seed,
-      branchCount: saved.tree.branchCount,
-      subBranchCount: saved.tree.subBranchCount,
-      leafDensity: saved.tree.leafDensity,
-      leafClusters: saved.tree.leafClusters,
-    };
-  } else {
-    treeOpts = { leafDensity: 1, branchCount: 10, subBranchCount: 0 };
-  }
-
-  const treeX = saved?.tree?.x ?? centerX;
-  const treeY = saved?.tree?.y ?? centerY;
-  const tree = new Tree(treeX, treeY, treeOpts);
-  game.addEntity(tree);
-
   // Flowers
   let flowers;
-  if (saved?.flowers?.length) {
-    flowers = saved.flowers.map(f => new Flower(f.x, f.y, f));
+  if (world?.flowers?.length) {
+    flowers = world.flowers.map(f => new Flower(f.x, f.y, f));
   } else {
-    flowers = generateFlowers(map, centerX, centerY);
+    flowers = generateFlowers(map);
+    world = {
+      map: { widthInTiles: mapW, heightInTiles: mapH },
+      flowers: flowers.map(f => f.flowerData),
+    };
+    await apiPut('/api/world', world, token);
   }
 
   for (const flower of flowers) {
     game.addEntity(flower);
   }
 
-  // Save world state if it was freshly generated
-  if (!saved) {
-    const worldData = {
-      map: { widthInTiles: mapW, heightInTiles: mapH },
-      tree: tree.treeData,
-      flowers: flowers.map(f => f.flowerData),
-    };
-    await saveWorld(worldData);
+  // 3. Load all players' trees
+  const players = await apiGet('/api/players', token);
+
+  for (const p of players) {
+    const t = p.tree;
+    const tree = new Tree(t.x, t.y, {
+      seed: t.seed,
+      branchCount: t.branchCount,
+      subBranchCount: t.subBranchCount,
+      leafDensity: t.leafDensity,
+      leafClusters: t.leafClusters,
+      ownerName: p.username,
+    });
+    game.addEntity(tree);
   }
 
-  // Center camera on the tree
-  game.camera.follow(treeX, treeY);
-  game.camera.x = treeX - game.canvas.width / 2;
-  game.camera.y = treeY - game.canvas.height / 2;
+  // 4. Setup fog of war centered on player's tree
+  const myTree = user.tree;
+  const clearTiles = myTree.visionRadius;   // 6 tiles
+  const fogExtraTiles = 2;                  // 2 tiles of foggy view
+  const clearRadius = clearTiles * TILE;
+  const fogRadius = (clearTiles + fogExtraTiles) * TILE;
 
-  // Camera: right-click drag to pan, scroll to zoom, space to recenter
+  game.camera.fog.enabled = true;
+  game.camera.fog.sources = [
+    { x: myTree.x, y: myTree.y, clearRadius, fogRadius },
+  ];
+
+  // 5. Center camera on player's tree
+  game.camera.follow(myTree.x, myTree.y);
+  game.camera.x = myTree.x - game.canvas.width / 2;
+  game.camera.y = myTree.y - game.canvas.height / 2;
+
+  // 6. Camera controls
   const ZOOM_SPEED = 0.0015;
 
   const originalUpdate = game._update.bind(game);
   game._update = function (dt) {
-    // Pan camera with right-click drag
+    // Pan with right-click drag
     const drag = this.input.consumeDrag();
     if (drag.dx !== 0 || drag.dy !== 0) {
       this.camera.targetX -= drag.dx / this.camera.zoom;
@@ -126,9 +186,9 @@ async function init() {
       this.camera.targetY = cy - (this.camera.height / newZoom) / 2;
     }
 
-    // Space to recenter on tree
+    // Space to recenter on own tree
     if (this.input.wasKeyPressed('Space')) {
-      this.camera.follow(treeX, treeY);
+      this.camera.follow(myTree.x, myTree.y);
       this.camera.setZoom(1);
     }
 

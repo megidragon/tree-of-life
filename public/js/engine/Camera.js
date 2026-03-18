@@ -14,6 +14,13 @@ export class Camera {
     this.minZoom = 0.15;
     this.maxZoom = 2;
     this.zoomSmoothing = 0.08;
+
+    // Fog of war
+    this.fog = {
+      enabled: false,
+      /** @type {{ x: number, y: number, clearRadius: number, fogRadius: number }[]} */
+      sources: [],
+    };
   }
 
   follow(x, y) {
@@ -47,7 +54,6 @@ export class Camera {
     this.height = height;
   }
 
-  /** Visible world width/height accounting for zoom */
   get viewWidth() {
     return this.width / this.zoom;
   }
@@ -67,12 +73,26 @@ export class Camera {
     );
   }
 
-  /** Apply camera transform to a canvas context */
+  /**
+   * Check if a rect is within any fog source's total range (fogRadius).
+   * Returns true if fog is disabled or rect is within range.
+   */
+  isInFogRange(x, y, w, h) {
+    if (!this.fog.enabled) return true;
+    for (const src of this.fog.sources) {
+      const closestX = Math.max(x, Math.min(src.x, x + w));
+      const closestY = Math.max(y, Math.min(src.y, y + h));
+      const dx = src.x - closestX;
+      const dy = src.y - closestY;
+      if (dx * dx + dy * dy <= src.fogRadius * src.fogRadius) return true;
+    }
+    return false;
+  }
+
   applyTransform(ctx) {
     ctx.setTransform(this.zoom, 0, 0, this.zoom, -this.x * this.zoom, -this.y * this.zoom);
   }
 
-  /** Reset canvas transform */
   resetTransform(ctx) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }

@@ -34,7 +34,7 @@ export class SpriteComponent extends Component {
     if (!transform) return;
 
     ctx.save();
-    this.renderFn(ctx, transform.x, transform.y, transform.width, transform.height);
+    this.renderFn(ctx, transform.x, transform.y, transform.width, transform.height, camera);
     ctx.restore();
   }
 }

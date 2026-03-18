@@ -11,66 +11,71 @@ export class GameMap {
     this.pixelHeight = heightInTiles * TILE_SIZE;
   }
 
-  /**
-   * Returns a single entity that renders all visible tiles.
-   * Much faster than one entity per tile for large maps.
-   */
   getEntities() {
     const mapEntity = new Entity('terrain');
     mapEntity.zIndex = 0;
     mapEntity.addTag('ground');
 
-    // Transform covers the entire map so frustum culling works
     mapEntity.addComponent(
       new TransformComponent(0, 0, this.pixelWidth, this.pixelHeight)
     );
 
     const self = this;
     mapEntity.addComponent(
-      new SpriteComponent((ctx, sx, sy, w, h) => {
-        self._renderVisibleTiles(ctx, sx, sy);
+      new SpriteComponent((ctx, sx, sy, w, h, camera) => {
+        self._renderVisibleTiles(ctx, camera);
       })
     );
 
     return [mapEntity];
   }
 
-  _renderVisibleTiles(ctx, mapX, mapY) {
-    // Figure out which tiles are visible from the current canvas clip
-    // ctx is already transformed by the camera, so we work in world coords
-    // mapX, mapY are the world origin of the map (0, 0)
+  _renderVisibleTiles(ctx, camera) {
+    const zoom = camera.zoom;
+    const camX = camera.x;
+    const camY = camera.y;
+    const canvasW = camera.width / zoom;
+    const canvasH = camera.height / zoom;
 
-    // Get the visible area from the inverse of current transform
-    const transform = ctx.getTransform();
-    const zoom = transform.a;
-    const camX = -transform.e / zoom;
-    const camY = -transform.f / zoom;
-
-    // Canvas size in world units
-    const canvasW = ctx.canvas.width / zoom;
-    const canvasH = ctx.canvas.height / zoom;
-
-    // Tile range to render
+    // Tile range visible on screen
     const startTX = Math.max(0, Math.floor(camX / TILE_SIZE));
     const startTY = Math.max(0, Math.floor(camY / TILE_SIZE));
     const endTX = Math.min(this.widthInTiles - 1, Math.floor((camX + canvasW) / TILE_SIZE));
     const endTY = Math.min(this.heightInTiles - 1, Math.floor((camY + canvasH) / TILE_SIZE));
+
+    const fogEnabled = camera.fog?.enabled;
+    const fogSources = camera.fog?.sources;
 
     for (let ty = startTY; ty <= endTY; ty++) {
       for (let tx = startTX; tx <= endTX; tx++) {
         const px = tx * TILE_SIZE;
         const py = ty * TILE_SIZE;
 
+        // Skip tiles outside fog range
+        if (fogEnabled && fogSources?.length) {
+          if (!this._isTileInFogRange(px, py, fogSources)) continue;
+        }
+
         const shade = this._grassShade(tx, ty);
         ctx.fillStyle = shade;
         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
-        // Only draw grass detail when zoomed in enough
         if (zoom > 0.3) {
           this._drawGrassDetail(ctx, px, py, TILE_SIZE, TILE_SIZE, tx, ty);
         }
       }
     }
+  }
+
+  _isTileInFogRange(px, py, sources) {
+    for (const src of sources) {
+      const closestX = Math.max(px, Math.min(src.x, px + TILE_SIZE));
+      const closestY = Math.max(py, Math.min(src.y, py + TILE_SIZE));
+      const dx = src.x - closestX;
+      const dy = src.y - closestY;
+      if (dx * dx + dy * dy <= src.fogRadius * src.fogRadius) return true;
+    }
+    return false;
   }
 
   _grassShade(tx, ty) {

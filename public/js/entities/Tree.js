@@ -25,14 +25,13 @@ export class Tree extends Entity {
    * @param {number} x
    * @param {number} y
    * @param {object} [options]
-   * @param {number} [options.seed] - Deterministic seed for branch generation
-   * @param {number} [options.branchCount=null] - Number of main branches (default: 5-7 random). 0 = trunk only
-   * @param {number} [options.subBranchCount=2] - Max sub-branches per main branch. 0 = no sub-branches
-   * @param {number} [options.leafDensity=1] - Leaf size: 0 = no leaves, 1 = normal, >1 = bigger
-   * @param {number} [options.leafClusters=0] - Clusters per branch: 0 = single leaf at tip (default), 1-5+ = multiple clusters along branch
-   * @param {object} [options.leafColor] - Custom leaf color palette
-   * @param {string[]} [options.leafColor.greens] - Array of 4 hex colors for leaf body
-   * @param {string[]} [options.leafColor.darkGreens] - Array of 4 hex colors for leaf shadows
+   * @param {number} [options.seed]
+   * @param {number} [options.branchCount]
+   * @param {number} [options.subBranchCount]
+   * @param {number} [options.leafDensity]
+   * @param {number} [options.leafClusters]
+   * @param {object} [options.leafColor]
+   * @param {string} [options.ownerName] - Player name displayed above the tree
    */
   constructor(x, y, options = {}) {
     super('tree');
@@ -44,6 +43,7 @@ export class Tree extends Entity {
     this.leafDensity = options.leafDensity ?? 1;
     this.leafClusters = options.leafClusters ?? 0;
     this.leafColor = options.leafColor ?? DEFAULT_LEAF_PALETTE;
+    this.ownerName = options.ownerName ?? null;
 
     // Store for serialization
     this.treeData = {
@@ -116,6 +116,22 @@ export class Tree extends Entity {
           ctx.ellipse(cx - 8, trunkTop - 20, canopyR * 0.3, canopyR * 0.25, -0.3, 0, Math.PI * 2);
           ctx.fill();
         }
+
+        // Owner name above tree
+        if (self.ownerName) {
+          ctx.font = 'bold 13px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          const nameY = sy - 6;
+
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.lineWidth = 3;
+          ctx.lineJoin = 'round';
+          ctx.strokeText(self.ownerName, cx, nameY);
+
+          ctx.fillStyle = '#e8f5e0';
+          ctx.fillText(self.ownerName, cx, nameY);
+        }
       })
     );
 
@@ -165,7 +181,6 @@ export class Tree extends Entity {
   static _generateBranches(rng, trunkW, trunkH, canopyR, forcedBranchCount, maxSubBranches, leafClusters) {
     const branches = [];
 
-    // Main branches growing from trunk
     const branchCount = forcedBranchCount ?? (5 + Math.floor(rng() * 3));
 
     for (let i = 0; i < branchCount; i++) {
@@ -176,7 +191,6 @@ export class Tree extends Entity {
       const thickness = 3 + rng() * 3;
       const startY = -trunkH * t;
 
-      // Each branch has sub-branches
       const subBranches = [];
       const subCount = Math.min(1 + Math.floor(rng() * 3), maxSubBranches);
       for (let j = 0; j < subCount; j++) {
@@ -206,7 +220,6 @@ export class Tree extends Entity {
   }
 
   static _generateLeafData(rng, branchLength, clusterCount) {
-    // Single leaf at tip (default mode: clusterCount = 0)
     if (clusterCount <= 0) {
       const size = 12 + rng() * 10;
       return {
@@ -218,7 +231,6 @@ export class Tree extends Entity {
       };
     }
 
-    // Multiple clusters along the branch
     const clusters = [];
     for (let i = 0; i < clusterCount; i++) {
       const t = 0.3 + rng() * 0.7;
@@ -250,7 +262,6 @@ export class Tree extends Entity {
       const endX = startX + Math.cos(branch.angle - Math.PI / 2) * branch.length;
       const endY = startY + Math.sin(branch.angle - Math.PI / 2) * branch.length;
 
-      // Draw branch wood
       ctx.strokeStyle = '#5C3A1E';
       ctx.lineWidth = branch.thickness;
       ctx.lineCap = 'round';
@@ -262,7 +273,6 @@ export class Tree extends Entity {
       ctx.quadraticCurveTo(cpx, cpy, endX, endY);
       ctx.stroke();
 
-      // Draw sub-branches
       for (const sub of branch.subBranches) {
         const subStartX = startX + (endX - startX) * sub.t;
         const subStartY = startY + (endY - startY) * sub.t;
@@ -276,13 +286,11 @@ export class Tree extends Entity {
         ctx.lineTo(subEndX, subEndY);
         ctx.stroke();
 
-        // Leaves on sub-branches
         if (leafDensity > 0) {
           Tree._renderLeaves(ctx, subStartX, subStartY, subEndX, subEndY, sub.leafData, greens, darkGreens, leafDensity);
         }
       }
 
-      // Leaves on main branch
       if (leafDensity > 0) {
         Tree._renderLeaves(ctx, startX, startY, endX, endY, branch.leafData, greens, darkGreens, leafDensity);
       }
@@ -291,24 +299,20 @@ export class Tree extends Entity {
 
   static _renderLeaves(ctx, startX, startY, endX, endY, leafData, greens, darkGreens, leafDensity) {
     if (leafData.mode === 'single') {
-      // Single leaf circle at the tip of the branch
       const { r, shade } = leafData.tipLeaf;
       const radius = r * leafDensity;
       if (radius < 0.5) return;
 
-      // Shadow
       ctx.fillStyle = darkGreens[shade];
       ctx.beginPath();
       ctx.arc(endX + 1, endY + 1, radius + 1, 0, Math.PI * 2);
       ctx.fill();
 
-      // Leaf body
       ctx.fillStyle = greens[shade];
       ctx.beginPath();
       ctx.arc(endX, endY, radius, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Multiple clusters along the branch
       for (const cluster of leafData.clusters) {
         const clX = startX + (endX - startX) * cluster.t;
         const clY = startY + (endY - startY) * cluster.t;

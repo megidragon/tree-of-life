@@ -7,6 +7,21 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+  <!-- Login overlay -->
+  <div id="loginOverlay">
+    <div class="login-card">
+      <h1>Tree of Life</h1>
+      <p class="login-subtitle">Plant your tree in the meadow</p>
+      <div id="loginError" class="login-error"></div>
+      <input type="text" id="loginUsername" placeholder="Username" autocomplete="username">
+      <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+      <div class="login-buttons">
+        <button id="btnLogin">Login</button>
+        <button id="btnRegister" class="secondary">Register</button>
+      </div>
+    </div>
+  </div>
+
   <canvas id="gameCanvas"></canvas>
   <script type="module" src="/js/main.js"></script>
 </body>

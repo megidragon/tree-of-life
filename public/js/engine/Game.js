@@ -11,6 +11,10 @@ export class Game {
     this.lastTime = 0;
     this.running = false;
 
+    // Offscreen canvas for fog rendering
+    this._fogCanvas = document.createElement('canvas');
+    this._fogCtx = this._fogCanvas.getContext('2d');
+
     this._resize();
     window.addEventListener('resize', () => this._resize());
   }
@@ -76,20 +80,70 @@ export class Game {
   _render() {
     const { ctx, canvas, camera } = this;
 
+    // Dark background for areas outside fog / outside map
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#080c08';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Apply camera zoom + pan transform
     camera.applyTransform(ctx);
 
     for (const entity of this.entities) {
       const transform = entity.getComponent('transform');
-      if (transform && !camera.isVisible(transform.x, transform.y, transform.width, transform.height)) {
-        continue;
+      if (transform) {
+        if (!camera.isVisible(transform.x, transform.y, transform.width, transform.height)) continue;
+        if (!camera.isInFogRange(transform.x, transform.y, transform.width, transform.height)) continue;
       }
       entity.render(ctx, camera);
     }
 
     camera.resetTransform(ctx);
+
+    // Fog overlay
+    this._renderFog();
+  }
+
+  _renderFog() {
+    const { camera, canvas, ctx } = this;
+    if (!camera.fog.enabled || camera.fog.sources.length === 0) return;
+
+    const fogCanvas = this._fogCanvas;
+    const fogCtx = this._fogCtx;
+
+    // Resize offscreen canvas if needed
+    if (fogCanvas.width !== canvas.width || fogCanvas.height !== canvas.height) {
+      fogCanvas.width = canvas.width;
+      fogCanvas.height = canvas.height;
+    }
+
+    // Fill with opaque fog
+    fogCtx.globalCompositeOperation = 'source-over';
+    fogCtx.fillStyle = 'rgba(8, 12, 8, 0.97)';
+    fogCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Punch transparent holes for each vision source
+    fogCtx.globalCompositeOperation = 'destination-out';
+
+    for (const src of camera.fog.sources) {
+      const sx = (src.x - camera.x) * camera.zoom;
+      const sy = (src.y - camera.y) * camera.zoom;
+      const clearR = src.clearRadius * camera.zoom;
+      const fogR = src.fogRadius * camera.zoom;
+
+      const gradient = fogCtx.createRadialGradient(sx, sy, 0, sx, sy, fogR);
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+      gradient.addColorStop(Math.min(clearR / fogR, 0.99), 'rgba(0, 0, 0, 1)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+      fogCtx.fillStyle = gradient;
+      fogCtx.beginPath();
+      fogCtx.arc(sx, sy, fogR, 0, Math.PI * 2);
+      fogCtx.fill();
+    }
+
+    fogCtx.globalCompositeOperation = 'source-over';
+
+    // Draw fog overlay onto main canvas
+    ctx.drawImage(fogCanvas, 0, 0);
   }
 }
