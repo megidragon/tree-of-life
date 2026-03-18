@@ -17,7 +17,11 @@ for (const tile of map.getEntities()) {
 // Place tree at the center of the map
 const centerX = map.getCenterX();
 const centerY = map.getCenterY();
-const tree = new Tree(centerX, centerY);
+const tree = new Tree(centerX, centerY, {
+  leafDensity: 1,
+  branchCount: 3,
+  subBranchCount: 0,
+});
 game.addEntity(tree);
 
 // Scatter some flowers around the meadow
