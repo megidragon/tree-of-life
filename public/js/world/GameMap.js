@@ -9,33 +9,66 @@ export class GameMap {
     this.heightInTiles = heightInTiles;
     this.pixelWidth = widthInTiles * TILE_SIZE;
     this.pixelHeight = heightInTiles * TILE_SIZE;
-    this.tileEntities = [];
-
-    this._generateTerrain();
   }
 
-  _generateTerrain() {
-    for (let ty = 0; ty < this.heightInTiles; ty++) {
-      for (let tx = 0; tx < this.widthInTiles; tx++) {
-        const tile = new Entity('terrain');
-        tile.zIndex = 0;
+  /**
+   * Returns a single entity that renders all visible tiles.
+   * Much faster than one entity per tile for large maps.
+   */
+  getEntities() {
+    const mapEntity = new Entity('terrain');
+    mapEntity.zIndex = 0;
+    mapEntity.addTag('ground');
 
-        tile.addComponent(
-          new TransformComponent(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-        );
+    // Transform covers the entire map so frustum culling works
+    mapEntity.addComponent(
+      new TransformComponent(0, 0, this.pixelWidth, this.pixelHeight)
+    );
+
+    const self = this;
+    mapEntity.addComponent(
+      new SpriteComponent((ctx, sx, sy, w, h) => {
+        self._renderVisibleTiles(ctx, sx, sy);
+      })
+    );
+
+    return [mapEntity];
+  }
+
+  _renderVisibleTiles(ctx, mapX, mapY) {
+    // Figure out which tiles are visible from the current canvas clip
+    // ctx is already transformed by the camera, so we work in world coords
+    // mapX, mapY are the world origin of the map (0, 0)
+
+    // Get the visible area from the inverse of current transform
+    const transform = ctx.getTransform();
+    const zoom = transform.a;
+    const camX = -transform.e / zoom;
+    const camY = -transform.f / zoom;
+
+    // Canvas size in world units
+    const canvasW = ctx.canvas.width / zoom;
+    const canvasH = ctx.canvas.height / zoom;
+
+    // Tile range to render
+    const startTX = Math.max(0, Math.floor(camX / TILE_SIZE));
+    const startTY = Math.max(0, Math.floor(camY / TILE_SIZE));
+    const endTX = Math.min(this.widthInTiles - 1, Math.floor((camX + canvasW) / TILE_SIZE));
+    const endTY = Math.min(this.heightInTiles - 1, Math.floor((camY + canvasH) / TILE_SIZE));
+
+    for (let ty = startTY; ty <= endTY; ty++) {
+      for (let tx = startTX; tx <= endTX; tx++) {
+        const px = tx * TILE_SIZE;
+        const py = ty * TILE_SIZE;
 
         const shade = this._grassShade(tx, ty);
-        tile.addComponent(
-          new SpriteComponent((ctx, sx, sy, w, h) => {
-            ctx.fillStyle = shade;
-            ctx.fillRect(sx, sy, w, h);
+        ctx.fillStyle = shade;
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
-            this._drawGrassDetail(ctx, sx, sy, w, h, tx, ty);
-          })
-        );
-
-        tile.addTag('ground');
-        this.tileEntities.push(tile);
+        // Only draw grass detail when zoomed in enough
+        if (zoom > 0.3) {
+          this._drawGrassDetail(ctx, px, py, TILE_SIZE, TILE_SIZE, tx, ty);
+        }
       }
     }
   }
@@ -68,9 +101,5 @@ export class GameMap {
 
   getCenterY() {
     return this.pixelHeight / 2;
-  }
-
-  getEntities() {
-    return this.tileEntities;
   }
 }

@@ -1,9 +1,15 @@
 export class InputManager {
   constructor() {
     this.keys = new Set();
+    this.keysJustPressed = new Set();
     this.mouse = { x: 0, y: 0, down: false };
+    this.rightMouse = { down: false, dragDX: 0, dragDY: 0 };
+    this.scrollDelta = 0;
 
     window.addEventListener('keydown', (e) => {
+      if (!this.keys.has(e.code)) {
+        this.keysJustPressed.add(e.code);
+      }
       this.keys.add(e.code);
     });
 
@@ -12,21 +18,58 @@ export class InputManager {
     });
 
     window.addEventListener('mousemove', (e) => {
+      if (this.rightMouse.down) {
+        this.rightMouse.dragDX += e.movementX;
+        this.rightMouse.dragDY += e.movementY;
+      }
       this.mouse.x = e.clientX;
       this.mouse.y = e.clientY;
     });
 
-    window.addEventListener('mousedown', () => {
-      this.mouse.down = true;
+    window.addEventListener('mousedown', (e) => {
+      if (e.button === 0) this.mouse.down = true;
+      if (e.button === 2) this.rightMouse.down = true;
     });
 
-    window.addEventListener('mouseup', () => {
-      this.mouse.down = false;
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.mouse.down = false;
+      if (e.button === 2) this.rightMouse.down = false;
     });
+
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
+
+    window.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.scrollDelta += e.deltaY;
+    }, { passive: false });
   }
 
   isKeyDown(code) {
     return this.keys.has(code);
+  }
+
+  wasKeyPressed(code) {
+    return this.keysJustPressed.has(code);
+  }
+
+  consumeScroll() {
+    const delta = this.scrollDelta;
+    this.scrollDelta = 0;
+    return delta;
+  }
+
+  consumeDrag() {
+    const dx = this.rightMouse.dragDX;
+    const dy = this.rightMouse.dragDY;
+    this.rightMouse.dragDX = 0;
+    this.rightMouse.dragDY = 0;
+    return { dx, dy };
+  }
+
+  endFrame() {
+    this.keysJustPressed.clear();
   }
 
   getMovementVector() {

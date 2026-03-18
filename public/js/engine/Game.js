@@ -76,7 +76,11 @@ export class Game {
   _render() {
     const { ctx, canvas, camera } = this;
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Apply camera zoom + pan transform
+    camera.applyTransform(ctx);
 
     for (const entity of this.entities) {
       const transform = entity.getComponent('transform');
@@ -85,5 +89,7 @@ export class Game {
       }
       entity.render(ctx, camera);
     }
+
+    camera.resetTransform(ctx);
   }
 }

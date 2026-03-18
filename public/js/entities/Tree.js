@@ -45,6 +45,15 @@ export class Tree extends Entity {
     this.leafClusters = options.leafClusters ?? 0;
     this.leafColor = options.leafColor ?? DEFAULT_LEAF_PALETTE;
 
+    // Store for serialization
+    this.treeData = {
+      x, y, seed,
+      branchCount: this.branchCount,
+      subBranchCount: this.subBranchCount,
+      leafDensity: this.leafDensity,
+      leafClusters: this.leafClusters,
+    };
+
     const trunkW = 24;
     const trunkH = 56;
     const canopyR = 60;

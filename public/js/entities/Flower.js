@@ -4,16 +4,28 @@ import { TransformComponent, SpriteComponent } from '../engine/Component.js';
 const FLOWER_COLORS = ['#FF6B8A', '#FFD93D', '#6BCB77', '#4D96FF', '#FF8B3D', '#C77DFF'];
 
 export class Flower extends Entity {
-  constructor(x, y) {
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {object} [options] - If omitted, random values are generated
+   * @param {number} [options.size]
+   * @param {string} [options.color]
+   * @param {number} [options.petalCount]
+   * @param {number} [options.rotation]
+   */
+  constructor(x, y, options = {}) {
     super('flower');
     this.zIndex = 1;
 
-    const size = 12 + Math.random() * 8;
-    this.addComponent(new TransformComponent(x - size / 2, y - size / 2, size, size));
+    const size = options.size ?? (12 + Math.random() * 8);
+    const color = options.color ?? FLOWER_COLORS[Math.floor(Math.random() * FLOWER_COLORS.length)];
+    const petalCount = options.petalCount ?? (4 + Math.floor(Math.random() * 3));
+    const rotation = options.rotation ?? (Math.random() * Math.PI * 2);
 
-    const color = FLOWER_COLORS[Math.floor(Math.random() * FLOWER_COLORS.length)];
-    const petalCount = 4 + Math.floor(Math.random() * 3);
-    const rotation = Math.random() * Math.PI * 2;
+    // Store for serialization
+    this.flowerData = { x, y, size, color, petalCount, rotation };
+
+    this.addComponent(new TransformComponent(x - size / 2, y - size / 2, size, size));
 
     this.addComponent(
       new SpriteComponent((ctx, sx, sy, w, h) => {
