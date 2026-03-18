@@ -56,6 +56,7 @@ export class Tree extends Entity {
     // Pre-generate branch structure so it's stable across frames
     const rng = seededRandom(seed);
     const branches = Tree._generateBranches(rng, trunkW, trunkH, canopyR, this.branchCount, this.subBranchCount, this.leafClusters);
+    const canopyLeaves = Tree._generateCanopyLeaves(rng, canopyR);
 
     const self = this;
     this.addComponent(
@@ -94,6 +95,11 @@ export class Tree extends Entity {
         // Draw branches and their leaves
         Tree._renderBranches(ctx, cx, trunkTop, trunkH, branches, self.leafDensity, self.leafColor);
 
+        // Draw canopy leaves scattered around the crown
+        if (self.leafDensity > 0) {
+          Tree._renderCanopyLeaves(ctx, cx, trunkTop, canopyLeaves, self.leafDensity, self.leafColor);
+        }
+
         // Leaf highlight (light hitting the top)
         if (self.leafDensity > 0) {
           ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
@@ -108,6 +114,43 @@ export class Tree extends Entity {
 
     this.addTag('solid');
     this.addTag('nature');
+  }
+
+  static _generateCanopyLeaves(rng, canopyR) {
+    const leaves = [];
+    const count = 4 + Math.floor(rng() * 5);
+
+    for (let i = 0; i < count; i++) {
+      const angle = rng() * Math.PI * 2;
+      const dist = rng() * canopyR * 0.6;
+      leaves.push({
+        ox: Math.cos(angle) * dist,
+        oy: Math.sin(angle) * dist * 0.8 - canopyR * 0.3,
+        r: 8 + rng() * 12,
+        shade: Math.floor(rng() * 4),
+      });
+    }
+
+    return leaves;
+  }
+
+  static _renderCanopyLeaves(ctx, cx, trunkTop, canopyLeaves, leafDensity, leafColor) {
+    const { greens, darkGreens } = leafColor;
+
+    for (const leaf of canopyLeaves) {
+      const r = leaf.r * leafDensity;
+      if (r < 0.5) continue;
+
+      ctx.fillStyle = darkGreens[leaf.shade];
+      ctx.beginPath();
+      ctx.arc(cx + leaf.ox + 1, trunkTop + leaf.oy + 1, r + 1, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = greens[leaf.shade];
+      ctx.beginPath();
+      ctx.arc(cx + leaf.ox, trunkTop + leaf.oy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   static _generateBranches(rng, trunkW, trunkH, canopyR, forcedBranchCount, maxSubBranches, leafClusters) {
