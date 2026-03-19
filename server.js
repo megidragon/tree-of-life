@@ -31,6 +31,68 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+// ── Gameplay constants (mirrored from client TreeStats.js) ──
+
+const GROWTH_BASE_RATE = 0.002;
+const GROWTH_ROOT_BONUS = 0.001;
+const HP_REGEN_RATE = 0.5;
+const MAX_HEIGHT = 100;
+const BRANCH_HEIGHT_INTERVAL = 10;
+const ROOT_GROWTH_RATE = 0.3;
+const ROOT_MAX_LENGTH = 80;
+
+function getBranchCount(height) {
+  return Math.floor(height / BRANCH_HEIGHT_INTERVAL);
+}
+
+function getLeafSize(height) {
+  return Math.min(1, 0.1 + height * 0.009);
+}
+
+function getVitality(height) {
+  const branches = getBranchCount(height);
+  const leafSize = getLeafSize(height);
+  return Math.floor(height * 2 + branches * 15 + leafSize * 50);
+}
+
+function getGrowthRate(roots) {
+  return GROWTH_BASE_RATE + (roots?.length ?? 0) * GROWTH_ROOT_BONUS;
+}
+
+/** Apply offline growth to a tree state */
+function applyOfflineGrowth(tree) {
+  if (!tree.lastUpdateTime || tree.height == null) return tree;
+
+  const now = Date.now();
+  const elapsed = (now - tree.lastUpdateTime) / 1000; // seconds
+  if (elapsed <= 0) return { ...tree, lastUpdateTime: now };
+
+  const rate = getGrowthRate(tree.roots);
+  const height = Math.min(MAX_HEIGHT, tree.height + rate * elapsed);
+  const vitality = getVitality(height);
+  const currentHP = Math.min(vitality, (tree.currentHP ?? vitality) + HP_REGEN_RATE * elapsed);
+
+  // Grow existing roots
+  const roots = (tree.roots || []).map(r => ({
+    ...r,
+    length: Math.min(ROOT_MAX_LENGTH, (r.length ?? 8) + ROOT_GROWTH_RATE * elapsed),
+  }));
+
+  return { ...tree, height, currentHP, roots, lastUpdateTime: now };
+}
+
+/** Ensure legacy tree data has all required fields */
+function migrateTree(tree) {
+  return {
+    ...tree,
+    height: tree.height ?? 100,
+    currentHP: tree.currentHP ?? getVitality(tree.height ?? 100),
+    roots: tree.roots ?? [],
+    lastUpdateTime: tree.lastUpdateTime ?? Date.now(),
+    visionRadius: tree.visionRadius ?? 6,
+  };
+}
+
 // Auth middleware
 function auth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -86,10 +148,10 @@ app.post('/api/register', async (req, res) => {
         x: treeX,
         y: treeY,
         seed: Math.floor(Math.random() * 100000),
-        branchCount: 10,
-        subBranchCount: 0,
-        leafDensity: 1,
-        leafClusters: 0,
+        height: 1,
+        currentHP: 10,
+        roots: [],
+        lastUpdateTime: Date.now(),
         visionRadius: 6,
       },
     };
@@ -126,13 +188,36 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    // Migrate and apply offline growth
+    let tree = migrateTree(user.tree);
+    tree = applyOfflineGrowth(tree);
+
+    // Persist the updated tree
+    await usersDb.update({ _id: user._id }, { $set: { tree } });
+
     const token = generateToken();
     sessions.set(token, user._id);
 
     res.json({
       token,
-      user: { username: user.username, tree: user.tree },
+      user: { username: user.username, tree },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/tree - Save tree game state
+app.patch('/api/tree', auth, async (req, res) => {
+  try {
+    const { tree } = req.body;
+    if (!tree) {
+      return res.status(400).json({ error: 'Tree data required' });
+    }
+
+    // Preserve position and seed, update gameplay state
+    await usersDb.update({ _id: req.userId }, { $set: { tree } });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -144,7 +229,7 @@ app.get('/api/players', auth, async (req, res) => {
     const players = await usersDb.find({});
     const data = players.map(p => ({
       username: p.username,
-      tree: p.tree,
+      tree: migrateTree(p.tree),
     }));
     res.json(data);
   } catch (err) {

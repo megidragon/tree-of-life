@@ -101,6 +101,9 @@ export class Game {
 
     // Fog overlay
     this._renderFog();
+
+    // UI overlay (screen-space)
+    this._renderUI();
   }
 
   _renderFog() {
@@ -145,5 +148,12 @@ export class Game {
 
     // Draw fog overlay onto main canvas
     ctx.drawImage(fogCanvas, 0, 0);
+  }
+
+  _renderUI() {
+    if (!this.onRenderUI) return;
+    const { ctx, canvas } = this;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.onRenderUI(ctx, canvas);
   }
 }
